@@ -4,13 +4,13 @@ app = Flask(__name__)
 
 ADMIN_PIN = "1234"
 
-# 🌟 [여기서 초기 시작 인원수를 원하시는 숫자로 고치실 수 있습니다]
+# 🌟 [초기 시작 설정 및 대기열 목록 포함]
 system_data = {
     "grade": "1",
     "class_num": "3",
     "current_call": "1학년 3반 이동하세요!",
     "congestion": "보통",
-    "current_count": 25,          # 👈 시작 인원수 (기본 25명 설정)
+    "current_count": 25,          # 👈 시작 인원수
     "max_count": 100,
     "total_entered": 142,
     "menu_name": "일반 메뉴",
@@ -22,10 +22,16 @@ system_data = {
     "allergies": "우유, 대두, 밀",
     "teachers": "김교사, 이교사",
     "history_labels": ["30분 전", "25분 전", "20분 전", "15분 전", "10분 전", "5분 전", "현재"],
-    "history_data": [12, 28, 45, 68, 52, 38, 25]
+    "history_data": [12, 28, 45, 68, 52, 38, 25],
+    "waiting_queue": ["1학년 4반", "1학년 5반", "2학년 1반"]  # 🌟 [자동 호출될 대기열 목록]
 }
 
 def recalculate_metrics():
+    # 🌟 [자동 호출 로직]: 남아있는 인원이 10명 이하이고 대기열에 반이 남아있다면 다음 반 자동 호출!
+    if system_data["current_count"] <= 10 and len(system_data["waiting_queue"]) > 0:
+        next_class = system_data["waiting_queue"].pop(0)
+        system_data["current_call"] = f"{next_class} 이동하세요!"
+
     system_data["avg_wait_time"] = round(system_data["current_count"] * system_data["menu_multiplier"] * 0.15, 1)
     count = system_data["current_count"]
     if count <= 20:
@@ -235,7 +241,7 @@ STUDENT_HTML = """
 """
 
 # ----------------------------------------------------
-# 2. 관리자용 모바일 뷰 (실시간 입력창 자동 갱신 반영)
+# 2. 관리자용 모바일 뷰 (자동 호출 대기열 등록 기능 추가)
 # ----------------------------------------------------
 ADMIN_HTML = """
 <!DOCTYPE html>
@@ -274,7 +280,9 @@ ADMIN_HTML = """
         .num-grid .btn { padding: 10px 0; background: white; border: 1px solid #E2E8F0; border-radius: 8px; text-align: center; font-weight: 600; color: #475569; cursor: pointer; }
         .num-grid .btn.active { background: #2563EB; color: white; border-color: #2563EB; font-weight: 800; }
         .btn-broadcast { width: 100%; padding: 14px; background: #2563EB; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; margin-bottom: 8px; }
+        .btn-queue-add { width: 100%; padding: 12px; background: #059669; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; margin-bottom: 8px; }
         .btn-stop { width: 100%; padding: 12px; background: #FEE2E2; color: #DC2626; border: none; border-radius: 12px; font-weight: 700; font-size: 13px; cursor: pointer; }
+        .queue-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 12px; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: #334155; }
         .type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
         .type-btn { padding: 12px 6px; border: 1px solid #E2E8F0; border-radius: 12px; background: white; text-align: center; cursor: pointer; }
         .type-btn.active { border-color: #2563EB; background: #EEF2FF; color: #2563EB; font-weight: 700; }
@@ -315,7 +323,7 @@ ADMIN_HTML = """
             </div>
 
             <div class="box">
-                <div class="box-title"><span class="material-symbols-rounded">campaign</span> 학년 / 반 호출 방송 설정</div>
+                <div class="box-title"><span class="material-symbols-rounded">campaign</span> 학년 / 반 호출 방송 및 자동 호출 순서 설정</div>
                 <span class="label">학년 선택</span>
                 <div class="btn-group">
                     <div class="btn grade-btn active" onclick="selectGrade('1')">1학년</div>
@@ -337,7 +345,14 @@ ADMIN_HTML = """
                     <div class="btn class-btn" onclick="selectClass('10')">10</div>
                 </div>
                 
-                <button class="btn-broadcast" onclick="sendBroadcastCall()">📢 선택한 학년/반 호출 방송하기</button>
+                <button class="btn-broadcast" onclick="sendBroadcastCall()">📢 바로 호출 방송하기</button>
+                <button class="btn-queue-add" onclick="addQueueCall()">📋 10명 이하 시 자동 호출 순서에 추가</button>
+                
+                <div class="queue-box">
+                    <strong>📌 대기 중인 다음 호출 예정 순서:</strong>
+                    <div id="queue-display" style="color:#2563EB; margin-top:4px;">불러오는 중...</div>
+                </div>
+
                 <button class="btn-stop" onclick="sendStopCall()">🚨 입장 일시 중단 / 전체 대기</button>
             </div>
 
@@ -378,7 +393,6 @@ ADMIN_HTML = """
         let selectedClass = "3";
         let isEditingInput = false;
 
-        // 관리자가 직접 입력창 클릭 시 실시간 자동 갱신 잠시 멈춤
         document.getElementById('direct-count-input').addEventListener('focus', () => { isEditingInput = true; });
         document.getElementById('direct-count-input').addEventListener('blur', () => { isEditingInput = false; });
 
@@ -439,6 +453,15 @@ ADMIN_HTML = """
             }).then(() => alert(msg + ' 호출 신호를 전송했습니다!'));
         }
 
+        function addQueueCall() {
+            let className = selectedGrade + '학년 ' + selectedClass + '반';
+            fetch('/api/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pin: currentPin, action: 'add_queue', className: className })
+            }).then(() => alert(className + '을(를) 자동 호출 대기 순서에 추가했습니다!'));
+        }
+
         function sendStopCall() {
             let msg = "현재 대기 중 (입장 일시 중단)";
             fetch('/api/update', {
@@ -468,15 +491,16 @@ ADMIN_HTML = """
             }).then(() => alert('식단 및 교사 정보가 업데이트되었습니다!'));
         }
 
-        // 🌟 관리자 페이지에서도 1초마다 아두이노 인원 변동 반영
         setInterval(() => {
-            if (!isEditingInput) {
-                fetch('/api/get_status')
-                    .then(res => res.json())
-                    .then(data => {
+            fetch('/api/get_status')
+                .then(res => res.json())
+                .then(data => {
+                    if (!isEditingInput) {
                         document.getElementById('direct-count-input').value = data.current_count;
-                    });
-            }
+                    }
+                    let qText = data.waiting_queue.length > 0 ? data.waiting_queue.join(' ➔ ') : '대기 중인 반 없음';
+                    document.getElementById('queue-display').innerText = qText;
+                });
         }, 1000);
     </script>
 </body>
@@ -518,6 +542,10 @@ def update_data():
         system_data['grade'] = data.get('grade', system_data['grade'])
         system_data['class_num'] = data.get('class_num', system_data['class_num'])
         system_data['current_call'] = data.get('value', system_data['current_call'])
+    elif action == 'add_queue':
+        cls_name = data.get('className')
+        if cls_name:
+            system_data['waiting_queue'].append(cls_name)
     elif action == 'set_menu_type':
         system_data['menu_name'] = data['name']
         system_data['menu_multiplier'] = data['multiplier']
@@ -530,9 +558,9 @@ def update_data():
         system_data['history_data'].append(system_data['current_count'])
     
     recalculate_metrics()
-    return jsonify({"status": "success"})
+    return jsonify({"status": "success", "waiting_queue": system_data['waiting_queue']})
 
-# 아두이노 초음파 카운팅 연동 API (-1 차감 반영)
+# 아두이노 초음파 카운팅 연동 API (-1 차감 및 10명 이하 자동 호출 반영)
 @app.route('/api/arduino/count', methods=['POST'])
 def arduino_count():
     data = request.json or {}
@@ -547,7 +575,7 @@ def arduino_count():
         system_data['history_data'].append(system_data['current_count'])
     
     recalculate_metrics()
-    return jsonify({"status": "success", "current_count": system_data['current_count']})
+    return jsonify({"status": "success", "current_count": system_data['current_count'], "current_call": system_data['current_call']})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000, use_reloader=False)

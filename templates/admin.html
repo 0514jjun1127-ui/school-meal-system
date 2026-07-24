@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>급식실 관리자 페이지</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+        .card { border: 1px solid #ccc; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+        input[type="text"] { width: 60%; padding: 10px; }
+        button { padding: 10px 15px; background-color: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        ul { list-style: none; padding: 0; }
+        li { padding: 8px; background: #f4f4f4; margin-bottom: 5px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>⚙️ 급식실 대기열 관리자 페이지</h1>
+    
+    <div class="card">
+        <h3>➕ 호출할 반 순서 등록하기</h3>
+        <input type="text" id="classInput" placeholder="예: 2학년 3반">
+        <button onclick="addClass()">추가</button>
+    </div>
+
+    <div class="card">
+        <h3>📋 현재 등록된 대기 순서</h3>
+        <ul id="queueList"></ul>
+        <button onclick="clearQueue()" style="background-color: #dc3545;">전체 초기화</button>
+    </div>
+
+    <script>
+        async function fetchQueue() {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            const list = document.getElementById('queueList');
+            list.innerHTML = '';
+            data.waiting_queue.forEach((cls, idx) => {
+                list.innerHTML += `<li>${idx + 1}순위: ${cls}</li>`;
+            });
+        }
+
+        async function addClass() {
+            const input = document.getElementById('classInput');
+            if(!input.value) return;
+            await fetch('/api/admin/add_queue', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ className: input.value })
+            });
+            input.value = '';
+            fetchQueue();
+        }
+
+        async function clearQueue() {
+            await fetch('/api/admin/clear_queue', { method: 'POST' });
+            fetchQueue();
+        }
+
+        fetchQueue();
+    </script>
+</body>
+</html>

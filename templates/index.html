@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>급식실 대기 인원 현황</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 30px; background-color: #f9f9f9; }
+        .box { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: inline-block; width: 80%; max-width: 400px; }
+        .count { font-size: 60px; color: #007bff; font-weight: bold; }
+        .calling { font-size: 28px; color: #28a745; margin-top: 15px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>🍚 현재 급식실 남은 인원</h2>
+        <div class="count" id="count">--명</div>
+        
+        <hr>
+        
+        <h3>📢 현재 입장이 호출된 반</h3>
+        <div class="calling" id="callingClass">대기 중...</div>
+    </div>
+
+    <script>
+        let lastCalledClass = "";
+
+        async function updateStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                
+                document.getElementById('count').innerText = data.current_count + "명";
+                document.getElementById('callingClass').innerText = data.calling_class || "없음";
+
+                // 새로운 반이 자동 호출되면 스마트폰 진동 울림!
+                if (data.calling_class && data.calling_class !== lastCalledClass) {
+                    lastCalledClass = data.calling_class;
+                    
+                    if ("vibrate" in navigator) {
+                        navigator.vibrate([500, 200, 500, 200, 500]);
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        setInterval(updateStatus, 2000);
+        updateStatus();
+    </script>
+</body>
+</html>
