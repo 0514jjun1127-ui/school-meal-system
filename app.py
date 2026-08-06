@@ -1,33 +1,51 @@
 from flask import Flask, jsonify, request, render_template_string
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
 
 app = Flask(__name__)
 
 ADMIN_PIN = "1234"
 
-# 🌟 [초기 시작 설정 및 대기열 목록 포함]
+# 🌟 [초기 시작 설정: 인원 0명, 대기반/호출반 빈 상태]
 system_data = {
-    "grade": "1",
-    "class_num": "3",
-    "current_call": "1학년 3반 이동하세요!",
-    "congestion": "보통",
-    "current_count": 25,          # 👈 시작 인원수
+    "grade": "-",
+    "class_num": "-",
+    "current_call": "대기 중 (호출반 없음)",
+    "congestion": "원활",
+    "current_count": 0,          # 👈 서버 시작 인원 0명
     "max_count": 100,
-    "total_entered": 142,
+    "total_entered": 0,
     "menu_name": "일반 메뉴",
     "menu_multiplier": 1.0,
-    "avg_wait_time": 3.8,
+    "avg_wait_time": 0.0,
     "peak_time": "12:45",
     "menu": ["발아현미밥", "고추장찌개", "돈육불고기", "상추쌈", "포기김치", "우유"],
     "calories": "785",
     "allergies": "우유, 대두, 밀",
     "teachers": "김교사, 이교사",
     "history_labels": ["30분 전", "25분 전", "20분 전", "15분 전", "10분 전", "5분 전", "현재"],
-    "history_data": [12, 28, 45, 68, 52, 38, 25],
-    "waiting_queue": ["1학년 4반", "1학년 5반", "2학년 1반"]  # 🌟 [자동 호출될 대기열 목록]
+    "history_data": [0, 0, 0, 0, 0, 0, 0],
+    "waiting_queue": []          # 👈 초기 대기열 없음
 }
 
+# 🌟 [1. 저녁 24시(자정) 데이터 자동 초기화 로직]
+def reset_daily_data():
+    system_data["current_count"] = 0
+    system_data["current_call"] = "대기 중 (호출반 없음)"
+    system_data["grade"] = "-"
+    system_data["class_num"] = "-"
+    system_data["waiting_queue"] = []
+    system_data["history_data"] = [0, 0, 0, 0, 0, 0, 0]
+    print("[시스템] 24시 자정 기준 데이터 자동 초기화가 완료되었습니다.")
+
+# 백그라운드 스케줄러 등록 (매일 00:00 실행)
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.add_job(reset_daily_data, 'cron', hour=0, minute=0)
+scheduler.start()
+atexit.register(lambda: scheduler.shutdown())
+
 def recalculate_metrics():
-    # 🌟 [자동 호출 로직]: 남아있는 인원이 10명 이하이고 대기열에 반이 남아있다면 다음 반 자동 호출!
+    # 남아있는 인원이 10명 이하이고 대기열에 반이 남아있다면 다음 반 자동 호출
     if system_data["current_count"] <= 10 and len(system_data["waiting_queue"]) > 0:
         next_class = system_data["waiting_queue"].pop(0)
         system_data["current_call"] = f"{next_class} 이동하세요!"
@@ -42,7 +60,7 @@ def recalculate_metrics():
         system_data["congestion"] = "혼잡"
 
 # ----------------------------------------------------
-# 1. 학생용 모바일 뷰
+# 1. 학생용 모바일 뷰 (호출/대기반 숨김 처리)
 # ----------------------------------------------------
 STUDENT_HTML = """
 <!DOCTYPE html>
@@ -62,11 +80,6 @@ STUDENT_HTML = """
         .header-title { display: flex; align-items: center; gap: 8px; }
         .live-tag { background: #E0F2FE; color: #0284C7; font-size: 11px; padding: 4px 8px; border-radius: 12px; font-weight: 700; display: flex; align-items: center; gap: 4px; }
         .content { padding: 16px; }
-        .enable-audio-btn { width: 100%; padding: 10px; background: #2563EB; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 13px; margin-bottom: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
-        .call-banner { background: linear-gradient(135deg, #2563EB, #3B82F6); color: white; padding: 20px; border-radius: 20px; box-shadow: 0 8px 16px rgba(37, 99, 235, 0.25); margin-bottom: 16px; position: relative; overflow: hidden; }
-        .call-banner .tag { background: rgba(255,255,255,0.2); font-size: 11px; padding: 3px 8px; border-radius: 8px; font-weight: 600; display: inline-block; margin-bottom: 8px; }
-        .call-banner h2 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
-        .call-banner .icon-bg { position: absolute; right: -10px; bottom: -10px; font-size: 90px; opacity: 0.15; }
         .status-card { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-bottom: 16px; border: 1px solid #F1F5F9; }
         .status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
         .status-header span { font-size: 14px; font-weight: 700; color: #475569; }
@@ -113,18 +126,10 @@ STUDENT_HTML = """
             </div>
         </div>
         <div class="content">
-            <button id="enable-btn" class="enable-audio-btn" onclick="enableAudioAndVib()">
-                <span class="material-symbols-rounded">notifications_active</span> 🔊 실시간 음성 및 진동 알림 켜기
-            </button>
-            <div class="call-banner">
-                <span class="tag">📢 실시간 방송 알림</span>
-                <h2 id="current-call">로딩 중...</h2>
-                <span class="material-symbols-rounded icon-bg">campaign</span>
-            </div>
             <div class="status-card">
                 <div class="status-header">
                     <span>현재 급식실 이용 인원</span>
-                    <span class="badge" id="congestion-badge">● 보통</span>
+                    <span class="badge" id="congestion-badge">● 원활</span>
                 </div>
                 <div class="count-display">
                     <span class="main-num" id="current-count">0</span>
@@ -148,7 +153,7 @@ STUDENT_HTML = """
                 </div>
             </div>
             <div class="chart-card">
-                <h4><span class="material-symbols-rounded" style="color:#2563EB;">show_chart</span> 실시간 혼잡도 추이 (최근 30분)</h4>
+                <h4><span class="material-symbols-rounded" style="color:#2563EB;">show_chart</span> 실시간 혼잡도 추이</h4>
                 <canvas id="congestionChart" height="170"></canvas>
             </div>
             <div class="menu-card">
@@ -182,30 +187,11 @@ STUDENT_HTML = """
             data: { labels: [], datasets: [{ label: '대기 인원수(명)', data: [], borderColor: '#2563EB', backgroundColor: 'rgba(37, 99, 235, 0.1)', borderWidth: 3, fill: true, tension: 0.4 }] },
             options: { responsive: true, plugins: { legend: { display: false } } }
         });
-        let lastCallText = "";
-        let audioEnabled = false;
-        function enableAudioAndVib() {
-            audioEnabled = true;
-            document.getElementById('enable-btn').style.background = "#10B981";
-            document.getElementById('enable-btn').innerHTML = '✅ 알림 기능이 활성화되었습니다';
-            if (navigator.vibrate) navigator.vibrate(100);
-        }
-        function triggerAlert(text) {
-            if ('speechSynthesis' in window && audioEnabled) {
-                const msg = new SpeechSynthesisUtterance(text);
-                msg.lang = 'ko-KR';
-                window.speechSynthesis.speak(msg);
-            }
-            if (navigator.vibrate) navigator.vibrate([400, 200, 400]);
-        }
+
         setInterval(() => {
             fetch('/api/get_status')
                 .then(res => res.json())
                 .then(data => {
-                    document.getElementById('current-call').innerText = data.current_call;
-                    if (lastCallText !== data.current_call && lastCallText !== "") { triggerAlert(data.current_call); }
-                    lastCallText = data.current_call;
-                    
                     document.getElementById('current-count').innerText = data.current_count;
                     document.getElementById('max-count').innerText = data.max_count;
                     let percent = (data.current_count / data.max_count) * 100;
@@ -241,7 +227,7 @@ STUDENT_HTML = """
 """
 
 # ----------------------------------------------------
-# 2. 관리자용 모바일 뷰 (자동 호출 대기열 등록 기능 추가)
+# 2. 관리자용 모바일 뷰 (호출반 & 대기반 전용 조회 포함)
 # ----------------------------------------------------
 ADMIN_HTML = """
 <!DOCTYPE html>
@@ -283,6 +269,7 @@ ADMIN_HTML = """
         .btn-queue-add { width: 100%; padding: 12px; background: #059669; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; margin-bottom: 8px; }
         .btn-stop { width: 100%; padding: 12px; background: #FEE2E2; color: #DC2626; border: none; border-radius: 12px; font-weight: 700; font-size: 13px; cursor: pointer; }
         .queue-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 12px; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: #334155; }
+        .call-status-box { background: #EEF2FF; border: 1px solid #C7D2FE; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
         .type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
         .type-btn { padding: 12px 6px; border: 1px solid #E2E8F0; border-radius: 12px; background: white; text-align: center; cursor: pointer; }
         .type-btn.active { border-color: #2563EB; background: #EEF2FF; color: #2563EB; font-weight: 700; }
@@ -290,6 +277,7 @@ ADMIN_HTML = """
         .type-btn .sub { font-size: 10px; color: #94A3B8; }
         .input-box { width: 100%; padding: 12px; border: 1px solid #E2E8F0; border-radius: 10px; font-family: 'Pretendard'; font-size: 13px; margin-bottom: 10px; box-sizing: border-box; }
         .btn-save-info { width: 100%; padding: 12px; background: #0F172A; color: white; border: none; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; }
+        .btn-clear-q { background: #EF4444; color: white; border: none; border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor: pointer; float: right; }
     </style>
 </head>
 <body>
@@ -308,10 +296,25 @@ ADMIN_HTML = """
         </div>
         <div class="content">
             <div class="box">
+                <div class="box-title"><span class="material-symbols-rounded">visibility</span> 실시간 대기반 & 호출반 현황</div>
+                <div class="call-status-box">
+                    <span class="label" style="color:#1D4ED8; margin-bottom:4px;">📢 현재 호출되어 들어오는 반:</span>
+                    <div id="admin-current-call" style="font-size:18px; font-weight:800; color:#1E4ED8;">로딩 중...</div>
+                </div>
+                <div class="queue-box">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <strong>📌 자동 호출 대기반 목록:</strong>
+                        <button class="btn-clear-q" onclick="clearQueue()">대기목록 초기화</button>
+                    </div>
+                    <div id="queue-display" style="color:#2563EB;">불러오는 중...</div>
+                </div>
+            </div>
+
+            <div class="box">
                 <div class="box-title"><span class="material-symbols-rounded">edit_number</span> 대기 인원 직접 입력 및 조정</div>
                 <span class="label">현재 급식실 대기 인원수 (명)</span>
                 <div class="count-input-row">
-                    <input type="number" id="direct-count-input" class="num-input" value="25">
+                    <input type="number" id="direct-count-input" class="num-input" value="0">
                     <button class="btn-apply" onclick="applyDirectCount()">적용</button>
                 </div>
                 <div class="quick-btn-row">
@@ -323,7 +326,7 @@ ADMIN_HTML = """
             </div>
 
             <div class="box">
-                <div class="box-title"><span class="material-symbols-rounded">campaign</span> 학년 / 반 호출 방송 및 자동 호출 순서 설정</div>
+                <div class="box-title"><span class="material-symbols-rounded">campaign</span> 학년 / 반 호출 및 순서 설정</div>
                 <span class="label">학년 선택</span>
                 <div class="btn-group">
                     <div class="btn grade-btn active" onclick="selectGrade('1')">1학년</div>
@@ -345,14 +348,9 @@ ADMIN_HTML = """
                     <div class="btn class-btn" onclick="selectClass('10')">10</div>
                 </div>
                 
-                <button class="btn-broadcast" onclick="sendBroadcastCall()">📢 바로 호출 방송하기</button>
-                <button class="btn-queue-add" onclick="addQueueCall()">📋 10명 이하 시 자동 호출 순서에 추가</button>
+                <button class="btn-broadcast" onclick="sendBroadcastCall()">📢 바로 호출하기</button>
+                <button class="btn-queue-add" onclick="addQueueCall()">📋 10명 이하 시 대기반에 추가</button>
                 
-                <div class="queue-box">
-                    <strong>📌 대기 중인 다음 호출 예정 순서:</strong>
-                    <div id="queue-display" style="color:#2563EB; margin-top:4px;">불러오는 중...</div>
-                </div>
-
                 <button class="btn-stop" onclick="sendStopCall()">🚨 입장 일시 중단 / 전체 대기</button>
             </div>
 
@@ -459,7 +457,17 @@ ADMIN_HTML = """
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pin: currentPin, action: 'add_queue', className: className })
-            }).then(() => alert(className + '을(를) 자동 호출 대기 순서에 추가했습니다!'));
+            }).then(() => alert(className + '을(를) 대기반 목록에 추가했습니다!'));
+        }
+
+        function clearQueue() {
+            if(confirm('대기반 목록을 초기화하시겠습니까?')) {
+                fetch('/api/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin: currentPin, action: 'clear_queue' })
+                });
+            }
         }
 
         function sendStopCall() {
@@ -498,7 +506,11 @@ ADMIN_HTML = """
                     if (!isEditingInput) {
                         document.getElementById('direct-count-input').value = data.current_count;
                     }
-                    let qText = data.waiting_queue.length > 0 ? data.waiting_queue.join(' ➔ ') : '대기 중인 반 없음';
+                    document.getElementById('admin-current-call').innerText = data.current_call;
+                    
+                    let qText = data.waiting_queue.length > 0 
+                        ? data.waiting_queue.map((item, idx) => `[${idx+1}] ${item}`).join(' ➔ ') 
+                        : '대기 중인 반 없음';
                     document.getElementById('queue-display').innerText = qText;
                 });
         }, 1000);
@@ -544,38 +556,18 @@ def update_data():
         system_data['current_call'] = data.get('value', system_data['current_call'])
     elif action == 'add_queue':
         cls_name = data.get('className')
-        if cls_name:
+        if cls_name and cls_name not in system_data['waiting_queue']:
             system_data['waiting_queue'].append(cls_name)
+    elif action == 'clear_queue':
+        system_data['waiting_queue'] = []
     elif action == 'set_menu_type':
-        system_data['menu_name'] = data['name']
-        system_data['menu_multiplier'] = data['multiplier']
+        system_data['menu_name'] = data.get('name', system_data['menu_name'])
+        system_data['menu_multiplier'] = data.get('multiplier', system_data['menu_multiplier'])
     elif action == 'save_settings':
-        if 'teachers' in data: system_data['teachers'] = data['teachers']
-        if 'menu' in data: system_data['menu'] = data['menu']
-        
-    if len(system_data['history_data']) > 0:
-        system_data['history_data'].pop(0)
-        system_data['history_data'].append(system_data['current_count'])
-    
-    recalculate_metrics()
-    return jsonify({"status": "success", "waiting_queue": system_data['waiting_queue']})
+        system_data['teachers'] = data.get('teachers', system_data['teachers'])
+        system_data['menu'] = data.get('menu', system_data['menu'])
 
-# 아두이노 초음파 카운팅 연동 API (-1 차감 및 10명 이하 자동 호출 반영)
-@app.route('/api/arduino/count', methods=['POST'])
-def arduino_count():
-    data = request.json or {}
-    event_type = data.get('event')
-    
-    # 센서 감지 시 -1명 차감
-    if event_type == 'leave' or event_type == 'enter':
-        system_data['current_count'] = max(0, system_data['current_count'] - 1)
-        
-    if len(system_data['history_data']) > 0:
-        system_data['history_data'].pop(0)
-        system_data['history_data'].append(system_data['current_count'])
-    
-    recalculate_metrics()
-    return jsonify({"status": "success", "current_count": system_data['current_count'], "current_call": system_data['current_call']})
+    return jsonify({"status": "success", "system_data": system_data})
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000, use_reloader=False)
+    app.run(host='0.0.0.0', port=5000, debug=True)
