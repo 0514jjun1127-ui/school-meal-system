@@ -38,9 +38,16 @@ def reset_daily_data():
     system_data["history_data"] = [0, 0, 0, 0, 0, 0, 0]
     print("[시스템] 24시 자정 기준 데이터 자동 초기화가 완료되었습니다.")
 
-# 백그라운드 스케줄러 등록 (매일 00:00 실행)
+# 🌟 [2. 5분마다 그래프 기록 밀기(Shift) 로직]
+def shift_history_data():
+    # 5분마다 오래된 데이터 하나를 빼고 최신 데이터를 추가하여 시간 흐름 표현
+    system_data["history_data"].pop(0)
+    system_data["history_data"].append(system_data["current_count"])
+
+# 백그라운드 스케줄러 등록
 scheduler = BackgroundScheduler(daemon=True)
 scheduler.add_job(reset_daily_data, 'cron', hour=0, minute=0)
+scheduler.add_job(shift_history_data, 'interval', minutes=5) # 5분마다 실행
 scheduler.start()
 atexit.register(lambda: scheduler.shutdown())
 
@@ -534,6 +541,8 @@ def admin_view():
 @app.route('/api/get_status')
 def get_status():
     recalculate_metrics()
+    # 📈 1. 1초마다 실시간으로 현재 인원수를 그래프의 맨 마지막 '현재' 항목에 업데이트
+    system_data["history_data"][-1] = system_data["current_count"]
     return jsonify(system_data)
 
 @app.route('/api/verify_admin', methods=['POST'])
@@ -570,13 +579,12 @@ def update_data():
         system_data['grade'] = data.get('grade', system_data['grade'])
         system_data['class_num'] = data.get('class_num', system_data['class_num'])
         system_data['current_call'] = data.get('value', system_data['current_call'])
-        # 📢 바로 호출하기를 통해 호출반으로 변경될 때만 +24명 증가
-        if "이동하세요" in str(data.get('value', '')):
-            system_data['current_count'] += 24
+        if "이동하세요" in system_data['current_call']:
+            system_data['current_count'] += 24  # 반 호출 시 24명 추가
     elif action == 'add_queue':
-        cls_name = data.get('className')
-        if cls_name and cls_name not in system_data['waiting_queue']:
-            system_data['waiting_queue'].append(cls_name)
+        className = data.get('className')
+        if className and className not in system_data['waiting_queue']:
+            system_data['waiting_queue'].append(className)
     elif action == 'clear_queue':
         system_data['waiting_queue'] = []
     elif action == 'set_menu_type':
@@ -585,8 +593,8 @@ def update_data():
     elif action == 'save_settings':
         system_data['teachers'] = data.get('teachers', system_data['teachers'])
         system_data['menu'] = data.get('menu', system_data['menu'])
-        
-    return jsonify({"status": "success"})
+
+    return jsonify({"status": "success", "current_count": system_data['current_count']})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
