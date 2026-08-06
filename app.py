@@ -541,6 +541,21 @@ def verify_admin():
     pin = request.json.get('pin')
     return jsonify({"success": pin == ADMIN_PIN})
 
+# 🤖 [아두이노 센서 통신 전용 API 엔드포인트]
+@app.route('/api/arduino/count', methods=['POST'])
+def arduino_count():
+    data = request.json or {}
+    event = data.get('event')
+    
+    if event == 'leave':
+        if system_data['current_count'] > 0:
+            system_data['current_count'] -= 1
+            
+    return jsonify({
+        'status': 'success',
+        'current_count': system_data['current_count']
+    }), 200
+
 # 관리자 조작 API
 @app.route('/api/update', methods=['POST'])
 def update_data():
@@ -562,7 +577,6 @@ def update_data():
         cls_name = data.get('className')
         if cls_name and cls_name not in system_data['waiting_queue']:
             system_data['waiting_queue'].append(cls_name)
-            # 👈 대기반에 추가할 때는 인원수를 늘리지 않습니다.
     elif action == 'clear_queue':
         system_data['waiting_queue'] = []
     elif action == 'set_menu_type':
@@ -572,8 +586,7 @@ def update_data():
         system_data['teachers'] = data.get('teachers', system_data['teachers'])
         system_data['menu'] = data.get('menu', system_data['menu'])
         
-    recalculate_metrics()
-    return jsonify({"status": "success", "data": system_data})
+    return jsonify({"status": "success"})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
