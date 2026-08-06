@@ -49,7 +49,7 @@ def recalculate_metrics():
     if system_data["current_count"] <= 10 and len(system_data["waiting_queue"]) > 0:
         next_class = system_data["waiting_queue"].pop(0)
         system_data["current_call"] = f"{next_class} 이동하세요!"
-        system_data["current_count"] += 24  # 👈 다음 반 자동 호출 시에도 +24명 추가!
+        system_data["current_count"] += 24  # 👈 대기반에서 호출반으로 전환될 때 +24명 추가!
 
     system_data["avg_wait_time"] = round(system_data["current_count"] * system_data["menu_multiplier"] * 0.15, 1)
     count = system_data["current_count"]
@@ -350,7 +350,7 @@ ADMIN_HTML = """
                 </div>
                 
                 <button class="btn-broadcast" onclick="sendBroadcastCall()">📢 바로 호출하기 (+24명)</button>
-                <button class="btn-queue-add" onclick="addQueueCall()">📋 대기반 목록에 추가 (+24명)</button>
+                <button class="btn-queue-add" onclick="addQueueCall()">📋 대기반 목록에 추가</button>
                 
                 <button class="btn-stop" onclick="sendStopCall()">🚨 입장 일시 중단 / 전체 대기</button>
             </div>
@@ -458,7 +458,7 @@ ADMIN_HTML = """
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pin: currentPin, action: 'add_queue', className: className })
-            }).then(() => alert(className + '을(를) 대기반 목록에 추가했습니다! (+24명 추가)'));
+            }).then(() => alert(className + '을(를) 대기반 목록에 추가했습니다!'));
         }
 
         function clearQueue() {
@@ -555,15 +555,14 @@ def update_data():
         system_data['grade'] = data.get('grade', system_data['grade'])
         system_data['class_num'] = data.get('class_num', system_data['class_num'])
         system_data['current_call'] = data.get('value', system_data['current_call'])
-        # 바로 호출하기 버튼을 눌렀을 때 +24명 증가
+        # 📢 바로 호출하기를 통해 호출반으로 변경될 때만 +24명 증가
         if "이동하세요" in str(data.get('value', '')):
             system_data['current_count'] += 24
     elif action == 'add_queue':
         cls_name = data.get('className')
         if cls_name and cls_name not in system_data['waiting_queue']:
             system_data['waiting_queue'].append(cls_name)
-            # 대기반 목록에 추가했을 때 +24명 증가
-            system_data['current_count'] += 24
+            # 👈 대기반에 추가할 때는 인원수를 늘리지 않습니다.
     elif action == 'clear_queue':
         system_data['waiting_queue'] = []
     elif action == 'set_menu_type':
@@ -577,4 +576,4 @@ def update_data():
     return jsonify({"status": "success", "data": system_data})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
