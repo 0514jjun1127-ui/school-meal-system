@@ -5,8 +5,8 @@ import time
 ARDUINO_PORT = 'COM8' 
 BAUD_RATE = 9600
 
-# 🌟 아래 주소를 방금 생성된 Render 웹 주소로 변경했습니다!
-SERVER_URL = "https://school-meal-system-srrg.onrender.com/api/arduino/count"
+# 🌟 정확한 Render 주소(2mrb)로 수정 완료!
+SERVER_URL = "https://school-meal-system-2mrb.onrender.com/api/arduino/count"
 
 try:
     py_serial = serial.Serial(port=ARDUINO_PORT, baudrate=BAUD_RATE, timeout=1)
