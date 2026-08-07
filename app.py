@@ -6,13 +6,20 @@ app = Flask(__name__)
 
 ADMIN_PIN = "1234"
 
-# 🌟 [초기 시작 설정: 인원 0명, 대기반/호출반 빈 상태]
+# 🌟 학년 / 반별 실시간 학생 수 매핑 데이터
+CLASS_STUDENT_COUNTS = {
+    "1": {"1": 24, "2": 24, "3": 24, "4": 24, "5": 23, "6": 23, "7": 23},
+    "2": {"1": 25, "2": 25, "3": 25, "4": 25, "5": 24, "6": 24, "7": 24},
+    "3": {"1": 24, "2": 24, "3": 24, "4": 23, "5": 23, "6": 23, "7": 23, "8": 23}
+}
+
+# 🌟 시스템 상태 데이터 (칼로리, 알레르기 제거됨)
 system_data = {
     "grade": "-",
     "class_num": "-",
     "current_call": "대기 중 (호출반 없음)",
     "congestion": "원활",
-    "current_count": 0,          # 👈 서버 시작 인원 0명
+    "current_count": 0,
     "max_count": 100,
     "total_entered": 0,
     "menu_name": "일반 메뉴",
@@ -20,15 +27,13 @@ system_data = {
     "avg_wait_time": 0.0,
     "peak_time": "12:45",
     "menu": ["발아현미밥", "고추장찌개", "돈육불고기", "상추쌈", "포기김치", "우유"],
-    "calories": "785",
-    "allergies": "우유, 대두, 밀",
     "teachers": "김교사, 이교사",
     "history_labels": ["30분 전", "25분 전", "20분 전", "15분 전", "10분 전", "5분 전", "현재"],
     "history_data": [0, 0, 0, 0, 0, 0, 0],
-    "waiting_queue": []          # 👈 초기 대기열 없음
+    "waiting_queue": []
 }
 
-# 🌟 [1. 저녁 24시(자정) 데이터 자동 초기화 로직]
+# 1. 자정 자동 데이터 초기화
 def reset_daily_data():
     system_data["current_count"] = 0
     system_data["current_call"] = "대기 중 (호출반 없음)"
@@ -36,27 +41,24 @@ def reset_daily_data():
     system_data["class_num"] = "-"
     system_data["waiting_queue"] = []
     system_data["history_data"] = [0, 0, 0, 0, 0, 0, 0]
-    print("[시스템] 24시 자정 기준 데이터 자동 초기화가 완료되었습니다.")
+    print("[시스템] 24시 자정 기준 데이터 자동 초기화 완료")
 
-# 🌟 [2. 5분마다 그래프 기록 밀기(Shift) 로직]
+# 2. 5분마다 그래프 기록 갱신
 def shift_history_data():
-    # 5분마다 오래된 데이터 하나를 빼고 최신 데이터를 추가하여 시간 흐름 표현
     system_data["history_data"].pop(0)
     system_data["history_data"].append(system_data["current_count"])
 
-# 백그라운드 스케줄러 등록
 scheduler = BackgroundScheduler(daemon=True)
 scheduler.add_job(reset_daily_data, 'cron', hour=0, minute=0)
-scheduler.add_job(shift_history_data, 'interval', minutes=5) # 5분마다 실행
+scheduler.add_job(shift_history_data, 'interval', minutes=5)
 scheduler.start()
 atexit.register(lambda: scheduler.shutdown())
 
 def recalculate_metrics():
-    # 남아있는 인원이 10명 이하이고 대기열에 반이 남아있다면 다음 반 자동 호출
     if system_data["current_count"] <= 10 and len(system_data["waiting_queue"]) > 0:
-        next_class = system_data["waiting_queue"].pop(0)
-        system_data["current_call"] = f"{next_class} 이동하세요!"
-        system_data["current_count"] += 24  # 👈 대기반에서 호출반으로 전환될 때 +24명 추가!
+        next_class_info = system_data["waiting_queue"].pop(0)
+        system_data["current_call"] = f"{next_class_info['name']} 이동하세요!"
+        system_data["current_count"] += next_class_info['count']
 
     system_data["avg_wait_time"] = round(system_data["current_count"] * system_data["menu_multiplier"] * 0.15, 1)
     count = system_data["current_count"]
@@ -68,7 +70,7 @@ def recalculate_metrics():
         system_data["congestion"] = "혼잡"
 
 # ----------------------------------------------------
-# 1. 학생용 모바일 뷰
+# 1. 학생용 모바일 뷰 HTML
 # ----------------------------------------------------
 STUDENT_HTML = """
 <!DOCTYPE html>
@@ -112,11 +114,6 @@ STUDENT_HTML = """
         .menu-title { font-weight: 700; font-size: 16px; color: #1E293B; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
         .menu-time { font-size: 12px; color: #94A3B8; margin-bottom: 12px; }
         .menu-list { list-style-type: disc; padding-left: 20px; color: #334155; font-size: 14px; font-weight: 500; line-height: 1.6; margin: 0; }
-        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-        .info-box { padding: 14px; border-radius: 16px; font-size: 12px; }
-        .info-box.blue { background: #EEF2FF; color: #2563EB; font-weight: 700; }
-        .info-box.orange { background: #FFF7ED; color: #C2410C; font-weight: 700; }
-        .info-box h5 { margin: 0 0 4px 0; font-size: 11px; color: #64748B; font-weight: 500; }
         .teacher-card { background: white; padding: 16px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); font-size: 13px; font-weight: 700; color: #334155; border: 1px solid #F1F5F9; margin-bottom: 16px; }
         .bottom-nav { position: absolute; bottom: 0; width: 100%; background: white; display: flex; justify-content: space-around; padding: 14px 0; border-top: 1px solid #E2E8F0; border-radius: 20px 20px 0 0; }
         .nav-item { text-align: center; color: #2563EB; font-size: 12px; font-weight: 700; display: flex; flex-direction: column; align-items: center; gap: 4px; }
@@ -169,16 +166,6 @@ STUDENT_HTML = """
                 <div class="menu-time">배식 시간: 12:30 ~ 13:30</div>
                 <ul class="menu-list" id="menu-list"></ul>
             </div>
-            <div class="info-grid">
-                <div class="info-box blue">
-                    <h5>예상 칼로리</h5>
-                    <span id="calories" style="font-size:16px;">785</span> kcal
-                </div>
-                <div class="info-box orange">
-                    <h5>알레르기 정보</h5>
-                    <span id="allergies" style="font-size:12px;">우유, 대두, 밀</span>
-                </div>
-            </div>
             <div class="teacher-card">
                 📋 오늘의 급식 지도: <span id="teachers" style="color:#2563EB;">김교사, 이교사</span>
             </div>
@@ -217,8 +204,6 @@ STUDENT_HTML = """
                     data.menu.forEach(item => { menuHtml += `<li>${item}</li>`; });
                     document.getElementById('menu-list').innerHTML = menuHtml;
                     
-                    document.getElementById('calories').innerText = data.calories;
-                    document.getElementById('allergies').innerText = data.allergies;
                     document.getElementById('teachers').innerText = data.teachers;
                     
                     if (congestionChart && congestionChart.data) {
@@ -235,7 +220,7 @@ STUDENT_HTML = """
 """
 
 # ----------------------------------------------------
-# 2. 관리자용 모바일 뷰
+# 2. 관리자용 모바일 뷰 HTML
 # ----------------------------------------------------
 ADMIN_HTML = """
 <!DOCTYPE html>
@@ -266,11 +251,10 @@ ADMIN_HTML = """
         .btn-apply { padding: 0 20px; background: #2563EB; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; }
         .quick-btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
         .btn-quick { flex: 1; padding: 10px; border: 1px solid #E2E8F0; border-radius: 10px; background: #F8FAFC; font-weight: 700; color: #334155; cursor: pointer; }
-        .btn-class-add { width: 100%; padding: 12px; background: #10B981; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 14px; cursor: pointer; }
         .btn-group { display: flex; background: #F1F5F9; border-radius: 12px; padding: 4px; margin-bottom: 12px; }
         .btn-group .btn { flex: 1; padding: 10px 0; text-align: center; font-size: 13px; font-weight: 600; color: #64748B; border-radius: 8px; cursor: pointer; }
         .btn-group .btn.active { background: white; color: #2563EB; font-weight: 800; }
-        .num-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 16px; }
+        .num-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 16px; }
         .num-grid .btn { padding: 10px 0; background: white; border: 1px solid #E2E8F0; border-radius: 8px; text-align: center; font-weight: 600; color: #475569; cursor: pointer; }
         .num-grid .btn.active { background: #2563EB; color: white; border-color: #2563EB; font-weight: 800; }
         .btn-broadcast { width: 100%; padding: 14px; background: #2563EB; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; margin-bottom: 8px; }
@@ -330,7 +314,6 @@ ADMIN_HTML = """
                     <button class="btn-quick" onclick="quickAdjust(+1)">+1명</button>
                     <button class="btn-quick" onclick="quickAdjust(+10)">+10명</button>
                 </div>
-                <button class="btn-class-add" onclick="quickAdjust(+24)">🏫 +1반 추가 (+24명)</button>
             </div>
 
             <div class="box">
@@ -342,23 +325,12 @@ ADMIN_HTML = """
                     <div class="btn grade-btn" onclick="selectGrade('3')">3학년</div>
                 </div>
                 
-                <span class="label">반 선택 (1~10반)</span>
-                <div class="num-grid">
-                    <div class="btn class-btn" onclick="selectClass('1')">1</div>
-                    <div class="btn class-btn" onclick="selectClass('2')">2</div>
-                    <div class="btn class-btn active" onclick="selectClass('3')">3</div>
-                    <div class="btn class-btn" onclick="selectClass('4')">4</div>
-                    <div class="btn class-btn" onclick="selectClass('5')">5</div>
-                    <div class="btn class-btn" onclick="selectClass('6')">6</div>
-                    <div class="btn class-btn" onclick="selectClass('7')">7</div>
-                    <div class="btn class-btn" onclick="selectClass('8')">8</div>
-                    <div class="btn class-btn" onclick="selectClass('9')">9</div>
-                    <div class="btn class-btn" onclick="selectClass('10')">10</div>
-                </div>
+                <span class="label">반 선택</span>
+                <div class="num-grid" id="class-grid">
+                    </div>
                 
-                <button class="btn-broadcast" onclick="sendBroadcastCall()">📢 바로 호출하기 (+24명)</button>
+                <button class="btn-broadcast" onclick="sendBroadcastCall()">📢 바로 호출하기</button>
                 <button class="btn-queue-add" onclick="addQueueCall()">📋 대기반 목록에 추가</button>
-                
                 <button class="btn-stop" onclick="sendStopCall()">🚨 입장 일시 중단 / 전체 대기</button>
             </div>
 
@@ -396,8 +368,30 @@ ADMIN_HTML = """
     <script>
         let currentPin = "";
         let selectedGrade = "1";
-        let selectedClass = "3";
+        let selectedClass = "1";
         let isEditingInput = false;
+
+        const classMap = {
+            "1": 7,  // 1학년 7반까지
+            "2": 7,  // 2학년 7반까지
+            "3": 8   // 3학년 8반까지
+        };
+
+        function renderClassButtons() {
+            const grid = document.getElementById('class-grid');
+            grid.innerHTML = '';
+            const maxClass = classMap[selectedGrade] || 7;
+            
+            for (let i = 1; i <= maxClass; i++) {
+                const btn = document.createElement('div');
+                btn.className = `btn class-btn ${i == selectedClass ? 'active' : ''}`;
+                btn.innerText = `${i}반`;
+                btn.onclick = () => selectClass(i.toString());
+                grid.appendChild(btn);
+            }
+        }
+
+        renderClassButtons();
 
         document.getElementById('direct-count-input').addEventListener('focus', () => { isEditingInput = true; });
         document.getElementById('direct-count-input').addEventListener('blur', () => { isEditingInput = false; });
@@ -440,8 +434,10 @@ ADMIN_HTML = """
 
         function selectGrade(g) {
             selectedGrade = g;
+            selectedClass = "1";
             document.querySelectorAll('.grade-btn').forEach(b => b.classList.remove('active'));
             event.currentTarget.classList.add('active');
+            renderClassButtons();
         }
 
         function selectClass(c) {
@@ -456,7 +452,7 @@ ADMIN_HTML = """
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pin: currentPin, action: 'set_call', grade: selectedGrade, class_num: selectedClass, value: msg })
-            }).then(() => alert(msg + ' 호출 신호를 전송했습니다! (+24명 추가)'));
+            }).then(() => alert(msg + ' 호출 신호를 전송했습니다!'));
         }
 
         function addQueueCall() {
@@ -464,7 +460,7 @@ ADMIN_HTML = """
             fetch('/api/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pin: currentPin, action: 'add_queue', className: className })
+                body: JSON.stringify({ pin: currentPin, action: 'add_queue', grade: selectedGrade, class_num: selectedClass, className: className })
             }).then(() => alert(className + '을(를) 대기반 목록에 추가했습니다!'));
         }
 
@@ -483,7 +479,7 @@ ADMIN_HTML = """
             fetch('/api/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pin: currentPin, action: 'set_call', grade: selectedGrade, class_num: selectedClass, value: msg })
+                body: JSON.stringify({ pin: currentPin, action: 'set_call', grade: "-", class_num: "-", value: msg })
             }).then(() => alert('입장 중단 신호를 보냈습니다.'));
         }
 
@@ -517,7 +513,7 @@ ADMIN_HTML = """
                     document.getElementById('admin-current-call').innerText = data.current_call;
                     
                     let qText = data.waiting_queue.length > 0 
-                        ? data.waiting_queue.map((item, idx) => `[${idx+1}] ${item}`).join(' ➔ ') 
+                        ? data.waiting_queue.map((item, idx) => `[${idx+1}] ${item.name}`).join(' ➔ ') 
                         : '대기 중인 반 없음';
                     document.getElementById('queue-display').innerText = qText;
                 });
@@ -528,7 +524,7 @@ ADMIN_HTML = """
 """
 
 # ----------------------------------------------------
-# 3. 백엔드 라우팅 및 API 처리 (완성본)
+# 3. 백엔드 라우팅 및 API 처리
 # ----------------------------------------------------
 @app.route('/')
 def student_view():
@@ -541,7 +537,6 @@ def admin_view():
 @app.route('/api/get_status')
 def get_status():
     recalculate_metrics()
-    # 📈 1. 1초마다 실시간으로 현재 인원수를 그래프의 맨 마지막 '현재' 항목에 업데이트
     system_data["history_data"][-1] = system_data["current_count"]
     return jsonify(system_data)
 
@@ -550,7 +545,7 @@ def verify_admin():
     pin = request.json.get('pin')
     return jsonify({"success": pin == ADMIN_PIN})
 
-# 🤖 [아두이노 센서 통신 전용 API 엔드포인트]
+# 아두이노 센서 통신 API
 @app.route('/api/arduino/count', methods=['POST'])
 def arduino_count():
     data = request.json or {}
@@ -565,36 +560,55 @@ def arduino_count():
         'current_count': system_data['current_count']
     }), 200
 
-# 관리자 조작 API
+# 관리자 제어 API (완성본)
 @app.route('/api/update', methods=['POST'])
 def update_data():
     data = request.json or {}
-    if data.get('pin') != ADMIN_PIN:
-        return jsonify({"status": "error", "message": "권한 없음"}), 403
-        
+    pin = data.get('pin')
+
+    if pin != ADMIN_PIN:
+        return jsonify({"success": False, "message": "인증 실패"}), 401
+
     action = data.get('action')
+
     if action == 'set_count':
-        system_data['current_count'] = max(0, data.get('value', 0))
+        system_data['current_count'] = max(0, int(data.get('value', 0)))
+
     elif action == 'set_call':
-        system_data['grade'] = data.get('grade', system_data['grade'])
-        system_data['class_num'] = data.get('class_num', system_data['class_num'])
-        system_data['current_call'] = data.get('value', system_data['current_call'])
-        if "이동하세요" in system_data['current_call']:
-            system_data['current_count'] += 24  # 반 호출 시 24명 추가
+        g = str(data.get('grade', '-'))
+        c = str(data.get('class_num', '-'))
+        system_data['grade'] = g
+        system_data['class_num'] = c
+        system_data['current_call'] = data.get('value', '')
+        
+        # 호출 시 해당 학년/반의 실제 인원 자동 추가
+        if g in CLASS_STUDENT_COUNTS and c in CLASS_STUDENT_COUNTS[g]:
+            student_count = CLASS_STUDENT_COUNTS[g][c]
+            system_data['current_count'] += student_count
+
     elif action == 'add_queue':
-        className = data.get('className')
-        if className and className not in system_data['waiting_queue']:
-            system_data['waiting_queue'].append(className)
+        g = str(data.get('grade', '1'))
+        c = str(data.get('class_num', '1'))
+        class_name = data.get('className', '')
+        student_count = CLASS_STUDENT_COUNTS.get(g, {}).get(c, 24)
+        
+        system_data['waiting_queue'].append({
+            'name': class_name,
+            'count': student_count
+        })
+
     elif action == 'clear_queue':
         system_data['waiting_queue'] = []
-    elif action == 'set_menu_type':
-        system_data['menu_name'] = data.get('name', system_data['menu_name'])
-        system_data['menu_multiplier'] = data.get('multiplier', system_data['menu_multiplier'])
-    elif action == 'save_settings':
-        system_data['teachers'] = data.get('teachers', system_data['teachers'])
-        system_data['menu'] = data.get('menu', system_data['menu'])
 
-    return jsonify({"status": "success", "current_count": system_data['current_count']})
+    elif action == 'set_menu_type':
+        system_data['menu_name'] = data.get('name', '일반 메뉴')
+        system_data['menu_multiplier'] = float(data.get('multiplier', 1.0))
+
+    elif action == 'save_settings':
+        system_data['teachers'] = data.get('teachers', '')
+        system_data['menu'] = data.get('menu', [])
+
+    return jsonify({"success": True, "state": system_data})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
